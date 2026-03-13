@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ginger Advisory Tool</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+body{font-family:Arial;background:#f3f6f8;padding:20px;}
+.container{max-width:900px;margin:auto;background:white;padding:20px;border-radius:8px}
+h2{text-align:center;color:#2e7d32}
+input{width:100%;padding:8px;margin-top:6px}
+button{margin-top:10px;padding:10px;width:100%;background:#2e7d32;color:white;border:none;border-radius:6px}
+.result{margin-top:20px;background:#eef7ee;padding:15px;border-radius:8px;white-space:pre-wrap}
+#downloadBtn{display:none}
+</style>
+
+</head>
+<body>
+
+<div class="container">
+
+<h2>Ginger Climate Advisory Tool</h2>
+
+<label>Google Maps Location Link</label>
+<input id="mapLink">
+
+<label>Latitude</label>
+<input id="lat">
+
+<label>Longitude</label>
+<input id="lon">
+
+<button onclick="detectLocation()">Auto Detect Location</button>
+<button onclick="generateReport()">Generate Advisory</button>
+
+<button id="downloadBtn" onclick="downloadPDF()">Download Report</button>
+
+<div id="result" class="result"></div>
+
+<canvas id="chart"></canvas>
+
+</div>
+
+<script>
+
+let advisoryText="";
+
+function detectLocation(){
+navigator.geolocation.getCurrentPosition(pos=>{
+document.getElementById("lat").value=pos.coords.latitude
+document.getElementById("lon").value=pos.coords.longitude
+})
+}
+
+function extractCoords(link){
+const m=link.match(/(-?\d+\.\d+),(-?\d+\.\d+)/)
+if(m)return{lat:m[1],lon:m[2]}
+}
+
+async function generateReport(){
+
+const result=document.getElementById("result")
+const downloadBtn=document.getElementById("downloadBtn")
+
+result.innerText="Fetching weather data..."
+
+let lat=document.getElementById("lat").value
+let lon=document.getElementById("lon").value
+
+const link=document.getElementById("mapLink").value
+
+if(link){
+const c=extractCoords(link)
+if(c){lat=c.lat;lon=c.lon}
+}
+
+if(!lat||!lon){
+result.innerText="Enter location"
+return
+}
+
+try{
+
+const weather=await fetch(
+`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_mean,soil_temperature_0cm_mean&forecast_days=90&timezone=auto`
+).then(r=>r.json())
+
+const tmax=weather.daily.temperature_2m_max
+const tmin=weather.daily.temperature_2m_min
+const rain=weather.daily.precipitation_sum
+
+const avgMax=tmax.reduce((a,b)=>a+b)/tmax.length
+const avgMin=tmin.reduce((a,b)=>a+b)/tmin.length
+const avgTemp=(avgMax+avgMin)/2
+
+const totalRain=rain.reduce((a,b)=>a+b)
+
+let report=""
+
+report+="Temperature Analysis\n"
+
+if(avgTemp>=22 && avgTemp<=25)
+report+="Ideal temperature for ginger\n"
+
+else if(avgTemp>=19 && avgTemp<=28)
+report+="Temperature suitable for ginger\n"
+
+else if(avgTemp>35)
+report+="High heat stress risk\n"
+
+else if(avgTemp<15)
+report+="Temperature too low for ginger\n"
+
+let sow=[]
+weather.daily.temperature_2m_min.forEach((t,i)=>{
+if(t>=15 && t<=20){
+let d=new Date(weather.daily.time[i])
+sow.push(d.toLocaleString('default',{month:'long'}))
+}
+})
+
+report+="\nSowing Months:\n"+[...new Set(sow)].join(", ")
+
+let heat=[]
+weather.daily.temperature_2m_max.forEach((t,i)=>{
+if(t>35){
+let d=new Date(weather.daily.time[i])
+heat.push(d.toLocaleString('default',{month:'long'}))
+}
+})
+
+report+="\n\nHeat Stress Months:\n"+[...new Set(heat)].join(", ")
+
+const elevation=weather.elevation
+
+report+="\n\nAltitude:\n"
+
+if(elevation>=300 && elevation<=900)
+report+="Suitable altitude "+elevation+" m"
+
+else
+report+="Altitude outside ideal range "+elevation+" m"
+
+report+="\n\nRainfall forecast (3 months): "+Math.round(totalRain)+" mm"
+
+const humidity=weather.daily.relative_humidity_2m_mean
+const soil=weather.daily.soil_temperature_0cm_mean
+
+const avgHumidity=humidity.reduce((a,b)=>a+b)/humidity.length
+const avgSoil=soil.reduce((a,b)=>a+b)/soil.length
+
+report+="\n\nHumidity avg: "+Math.round(avgHumidity)+" %"
+
+report+="\nSoil temperature avg: "+Math.round(avgSoil)+" °C"
+
+advisoryText=report
+result.innerText=report
+
+downloadBtn.style.display="block"
+
+drawChart(weather)
+
+}catch(e){
+result.innerText="Weather data error. Try again."
+}
+
+}
+
+function drawChart(data){
+
+const ctx=document.getElementById("chart")
+
+new Chart(ctx,{
+type:"line",
+data:{
+labels:data.daily.time,
+datasets:[{
+label:"Max Temperature",
+data:data.daily.temperature_2m_max
+}]
+}
+})
+
+}
+
+function downloadPDF(){
+
+const {jsPDF}=window.jspdf
+const doc=new jsPDF()
+
+doc.text(advisoryText,10,10)
+
+doc.save("ginger_report.pdf")
+
+}
+
+</script>
+
+</body>
+</html>
